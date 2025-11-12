@@ -1,5 +1,25 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { GoogleGenerativeAI, Content, Part } from '@google/generative-ai';
+// Note: @google/generative-ai is not in shared dependencies - this wrapper is prepared but not active
+// It should be moved to chrome-extension dependencies when integrated
+// import type { Content, Part } from '@google/generative-ai';
+
+// Mock types for development when dependency not available
+interface Content {
+  role: string;
+  parts: Part[];
+}
+
+interface Part {
+  text?: string;
+  functionCall?: any;
+  functionResponse?: any;
+}
+
+// Mock class for type checking when dependency not available
+declare class GoogleGenerativeAI {
+  constructor(apiKey: string);
+  getGenerativeModel(options: any): any;
+}
 
 interface RetryConfig {
   maxRetries: number;
@@ -21,10 +41,10 @@ interface FunctionCallResult {
 
 /**
  * Safe wrapper for Gemini API with retry logic and fallbacks
- * 
+ *
  * This wrapper fixes the common error:
  * "Invalid JSON payload received. Unknown name 'args' at 'contents[N].parts[M].function_call': Proto field is not repeating, cannot start list"
- * 
+ *
  * Key features:
  * - Validates and sanitizes conversation history
  * - Retries on failure with exponential backoff
@@ -68,9 +88,7 @@ export class GeminiWrapper {
    */
   private formatFunctionResponse(name: string, response: any): Part {
     const safeResponse =
-      response && typeof response === 'object' && !Array.isArray(response)
-        ? response
-        : { value: response };
+      response && typeof response === 'object' && !Array.isArray(response) ? response : { value: response };
 
     return {
       functionResponse: {
@@ -96,7 +114,7 @@ export class GeminiWrapper {
         return;
       }
 
-      content.parts.forEach((part, partIndex) => {
+      content.parts.forEach((part: any, partIndex: number) => {
         // Check functionCall
         if ('functionCall' in part) {
           const fc = (part as any).functionCall;
@@ -104,9 +122,7 @@ export class GeminiWrapper {
             errors.push(`contents[${index}].parts[${partIndex}]: functionCall missing name`);
           }
           if (fc.args && Array.isArray(fc.args)) {
-            errors.push(
-              `contents[${index}].parts[${partIndex}]: functionCall.args must be object, not array`,
-            );
+            errors.push(`contents[${index}].parts[${partIndex}]: functionCall.args must be object, not array`);
           }
         }
 
@@ -117,17 +133,13 @@ export class GeminiWrapper {
             errors.push(`contents[${index}].parts[${partIndex}]: functionResponse missing name`);
           }
           if (fr.response && Array.isArray(fr.response)) {
-            errors.push(
-              `contents[${index}].parts[${partIndex}]: functionResponse.response must be object, not array`,
-            );
+            errors.push(`contents[${index}].parts[${partIndex}]: functionResponse.response must be object, not array`);
           }
         }
 
         // Check for snake_case (common mistake)
         if ('function_call' in part) {
-          errors.push(
-            `contents[${index}].parts[${partIndex}]: Use functionCall (camelCase), not function_call`,
-          );
+          errors.push(`contents[${index}].parts[${partIndex}]: Use functionCall (camelCase), not function_call`);
         }
         if ('function_response' in part) {
           errors.push(
@@ -146,7 +158,7 @@ export class GeminiWrapper {
   private sanitizeContents(contents: Content[]): Content[] {
     return contents.map(content => ({
       role: content.role,
-      parts: content.parts.map(part => {
+      parts: content.parts.map((part: any) => {
         // Fix functionCall
         if ('functionCall' in part) {
           const fc = (part as any).functionCall;
@@ -227,9 +239,7 @@ export class GeminiWrapper {
   private isRetryableError(error: any): boolean {
     // 400 - might be fixable with data sanitization
     if (error.status === 400) {
-      return (
-        error.message?.includes('Invalid JSON payload') || error.message?.includes('Proto field')
-      );
+      return error.message?.includes('Invalid JSON payload') || error.message?.includes('Proto field');
     }
 
     // 429 - rate limit, 500+ - server errors
@@ -316,9 +326,7 @@ export class GeminiWrapper {
     try {
       const truncatedContents = contents.slice(-6);
 
-      console.warn(
-        `[Gemini] Truncating history from ${contents.length} to ${truncatedContents.length} messages`,
-      );
+      console.warn(`[Gemini] Truncating history from ${contents.length} to ${truncatedContents.length} messages`);
 
       const model = this.genAI.getGenerativeModel({
         model: this.modelName,

@@ -548,7 +548,6 @@ const SidePanel = () => {
       appendMessage({
         actor: Actors.SYSTEM,
         content: `Unsupported command: ${command}. \n\nAvailable commands: /state, /nohighlight, /frames, /replay <historySessionId>`,
-        content: t('errors_cmd_unknown', command),
         timestamp: Date.now(),
       });
       return true;
