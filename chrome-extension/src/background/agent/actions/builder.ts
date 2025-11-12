@@ -22,14 +22,26 @@ import {
   nextPageActionSchema,
   scrollToTopActionSchema,
   scrollToBottomActionSchema,
+  extractTextFromScreenshotActionSchema,
+  findTextOnScreenActionSchema,
 } from './schemas';
 import { z } from 'zod';
 import { createLogger } from '@src/background/log';
 import { ExecutionState, Actors } from '../event/types';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { wrapUntrustedContent } from '../messages/utils';
+import { OCRWrapper } from '@extension/shared';
 
 const logger = createLogger('Action');
+
+// Initialize OCR wrapper (lazy initialization)
+let ocrWrapper: OCRWrapper | null = null;
+function getOCRWrapper(): OCRWrapper {
+  if (!ocrWrapper) {
+    ocrWrapper = new OCRWrapper({ engine: 'tesseract' });
+  }
+  return ocrWrapper;
+}
 
 export class InvalidInputError extends Error {
   constructor(message: string) {
@@ -701,6 +713,83 @@ export class ActionBuilder {
       true,
     );
     actions.push(selectDropdownOption);
+
+    // OCR Actions
+    const extractTextFromScreenshot = new Action(
+      async (input: z.infer<typeof extractTextFromScreenshotActionSchema.schema>) => {
+        const intent = input.intent || 'Extracting text from screenshot using OCR';
+        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
+
+        try {
+          const page = await this.context.browserContext.getCurrentPage();
+          const screenshot = await page.takeScreenshot();
+
+          const ocr = getOCRWrapper();
+          if (!ocr.isReady()) {
+            const msg = 'OCR is not available. Tesseract.js may not be installed.';
+            logger.warning(msg);
+            this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
+            return new ActionResult({ error: msg, includeInMemory: true });
+          }
+
+          const text = await ocr.extractText(screenshot, input.useCache);
+          if (!text) {
+            const msg = 'No text found in screenshot';
+            this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
+            return new ActionResult({ extractedContent: msg, includeInMemory: true });
+          }
+
+          const msg = `📷 Extracted text from screenshot:\n${text}`;
+          this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, 'Text extracted successfully');
+          return new ActionResult({ extractedContent: msg, includeInMemory: true });
+        } catch (error) {
+          const errorMsg = `OCR extraction failed: ${error instanceof Error ? error.message : String(error)}`;
+          logger.error(errorMsg);
+          this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, errorMsg);
+          return new ActionResult({ error: errorMsg, includeInMemory: true });
+        }
+      },
+      extractTextFromScreenshotActionSchema,
+    );
+    actions.push(extractTextFromScreenshot);
+
+    const findTextOnScreen = new Action(
+      async (input: z.infer<typeof findTextOnScreenActionSchema.schema>) => {
+        const intent = input.intent || `Finding text "${input.searchText}" on screen using OCR`;
+        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
+
+        try {
+          const page = await this.context.browserContext.getCurrentPage();
+          const screenshot = await page.takeScreenshot();
+
+          const ocr = getOCRWrapper();
+          if (!ocr.isReady()) {
+            const msg = 'OCR is not available. Tesseract.js may not be installed.';
+            logger.warning(msg);
+            this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
+            return new ActionResult({ error: msg, includeInMemory: true });
+          }
+
+          const region = await ocr.findTextOnScreen(screenshot, input.searchText);
+          if (!region) {
+            const msg = `Text "${input.searchText}" not found on screen`;
+            this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
+            return new ActionResult({ extractedContent: msg, includeInMemory: true });
+          }
+
+          const msg = `📍 Found text "${region.text}" at coordinates: x=${region.bbox[0]}, y=${region.bbox[1]}, width=${region.bbox[2]}, height=${region.bbox[3]}`;
+          this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, 'Text location found');
+          return new ActionResult({ extractedContent: msg, includeInMemory: true });
+        } catch (error) {
+          const errorMsg = `OCR text search failed: ${error instanceof Error ? error.message : String(error)}`;
+          logger.error(errorMsg);
+          this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, errorMsg);
+          return new ActionResult({ error: errorMsg, includeInMemory: true });
+        }
+      },
+      findTextOnScreenActionSchema,
+    );
+    actions.push(findTextOnScreen);
 
     return actions;
   }
