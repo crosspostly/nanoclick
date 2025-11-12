@@ -92,16 +92,6 @@ export const closeTabActionSchema: ActionSchema = {
   }),
 };
 
-// Content Actions, not used currently
-// export const extractContentActionSchema: ActionSchema = {
-//   name: 'extract_content',
-//   description:
-//     'Extract page content to retrieve specific information from the page, e.g. all company names, a specific description, all information about, links with companies in structured format or simply links',
-//   schema: z.object({
-//     goal: z.string(),
-//   }),
-// };
-
 // Cache Actions
 export const cacheContentActionSchema: ActionSchema = {
   name: 'cache_content',
@@ -211,5 +201,24 @@ export const waitActionSchema: ActionSchema = {
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
     seconds: z.number().int().default(3).describe('amount of seconds'),
+  }),
+};
+
+// OCR Actions
+export const extractTextFromScreenshotActionSchema: ActionSchema = {
+  name: 'extract_text_from_screenshot',
+  description: 'Extract all text from current page screenshot using OCR. Use this when DOM-based text extraction is not sufficient or when you need to read text from images, canvas elements, or inaccessible content.',
+  schema: z.object({
+    intent: z.string().default('').describe('purpose of this action'),
+    useCache: z.boolean().default(true).describe('use cached OCR results if available'),
+  }),
+};
+
+export const findTextOnScreenActionSchema: ActionSchema = {
+  name: 'find_text_on_screen',
+  description: 'Find specific text on screen using OCR and return its coordinates. Useful for locating text in images or inaccessible elements.',
+  schema: z.object({
+    intent: z.string().default('').describe('purpose of this action'),
+    searchText: z.string().describe('text to find on screen'),
   }),
 };

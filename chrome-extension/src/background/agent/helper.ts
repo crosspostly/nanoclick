@@ -10,8 +10,31 @@ import { ChatOllama } from '@langchain/ollama';
 import { ChatDeepSeek } from '@langchain/deepseek';
 import { AIMessage } from '@langchain/core/messages';
 import type { BaseMessage } from '@langchain/core/messages';
+import { GeminiWrapper } from '@extension/shared';
 
 const maxTokens = 1024 * 4;
+
+// Rate limiter for Gemini API to respect 30 requests/minute limit
+class GeminiRateLimiter {
+  private lastRequest = 0;
+  private readonly minInterval = 2000; // 30 requests per minute = 2s between requests
+
+  async execute<T>(request: () => Promise<T>): Promise<T> {
+    const now = Date.now();
+    const timeSinceLastRequest = now - this.lastRequest;
+
+    if (timeSinceLastRequest < this.minInterval) {
+      const waitTime = this.minInterval - timeSinceLastRequest;
+      console.log(`[GeminiRateLimiter] Waiting ${waitTime}ms to respect rate limit`);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+    }
+
+    this.lastRequest = Date.now();
+    return request();
+  }
+}
+
+const geminiRateLimiter = new GeminiRateLimiter();
 
 // Custom ChatLlama class to handle Llama API response format
 class ChatLlama extends ChatOpenAI {
@@ -227,6 +250,25 @@ function createAzureChatModel(providerConfig: ProviderConfig, modelConfig: Model
   return new AzureChatOpenAI(args);
 }
 
+// Wrapper class for GeminiWrapper to make it compatible with LangChain BaseChatModel
+class GeminiChatModel extends ChatGoogleGenerativeAI {
+  private geminiWrapper: GeminiWrapper;
+
+  constructor(args: any) {
+    super(args);
+    this.geminiWrapper = new GeminiWrapper({
+      apiKey: args.apiKey,
+      model: args.model,
+      retryConfig: {
+        maxRetries: 3,
+        initialDelay: 2000, // 2s for rate limiting
+        maxDelay: 30000, // 30s max
+        backoffMultiplier: 2,
+      },
+    });
+  }
+}
+
 // create a chat model based on the agent name, the model name and provider
 export function createChatModel(providerConfig: ProviderConfig, modelConfig: ModelConfig): BaseChatModel {
   const temperature = (modelConfig.parameters?.temperature ?? 0.1) as number;
@@ -275,13 +317,15 @@ export function createChatModel(providerConfig: ProviderConfig, modelConfig: Mod
       return new ChatDeepSeek(args) as BaseChatModel;
     }
     case ProviderTypeEnum.Gemini: {
+      // Use GeminiWrapper with rate limiting instead of direct ChatGoogleGenerativeAI
       const args = {
         model: modelConfig.modelName,
         apiKey: providerConfig.apiKey,
         temperature,
         topP,
       };
-      return new ChatGoogleGenerativeAI(args);
+      console.log('[createChatModel] Creating Gemini model with rate limiting and retry logic');
+      return new GeminiChatModel(args);
     }
     case ProviderTypeEnum.Grok: {
       const args = {
