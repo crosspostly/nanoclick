@@ -9,6 +9,8 @@ import {
 import Page, { build_initial_state } from './page';
 import { createLogger } from '@src/background/log';
 import { isUrlAllowed } from './util';
+import { CDPSessionManager } from './cdp/cdp-session-manager';
+import type { CDPClientInfo } from './cdp/types';
 import { analytics } from '../services/analytics';
 
 const logger = createLogger('BrowserContext');
@@ -16,9 +18,11 @@ export default class BrowserContext {
   private _config: BrowserContextConfig;
   private _currentTabId: number | null = null;
   private _attachedPages: Map<number, Page> = new Map();
+  private _cdpSessionManager: CDPSessionManager;
 
   constructor(config: Partial<BrowserContextConfig>) {
     this._config = { ...DEFAULT_BROWSER_CONTEXT_CONFIG, ...config };
+    this._cdpSessionManager = new CDPSessionManager();
   }
 
   public getConfig(): BrowserContextConfig {
@@ -50,14 +54,14 @@ export default class BrowserContext {
       this._attachedPages.delete(tab.id);
     }
     logger.info('getOrCreatePage', tab.id, 'creating new page');
-    return new Page(tab.id, tab.url || '', tab.title || '', this._config);
+    return new Page(tab.id, tab.url || '', tab.title || '', this._config, this._cdpSessionManager);
   }
 
   public async cleanup(): Promise<void> {
     const currentPage = await this.getCurrentPage();
     currentPage?.removeHighlight();
     // detach all pages
-    for (const page of this._attachedPages.values()) {
+    for (const page of Array.from(this._attachedPages.values())) {
       await page.detachPuppeteer();
     }
     this._attachedPages.clear();
@@ -356,5 +360,11 @@ export default class BrowserContext {
     if (page) {
       await page.removeHighlight();
     }
+  }
+
+  public async getCDPClientsInfo(): Promise<CDPClientInfo[]> {
+    const currentPage = await this.getCurrentPage();
+    const tabId = currentPage.tabId;
+    return this._cdpSessionManager.getClients(tabId);
   }
 }

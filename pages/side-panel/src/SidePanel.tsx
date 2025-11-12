@@ -333,6 +333,13 @@ const SidePanel = () => {
             timestamp: Date.now(),
           });
           setIsProcessingSpeech(false);
+        } else if (message && message.type === 'success') {
+          // Handle success messages from service worker
+          appendMessage({
+            actor: Actors.SYSTEM,
+            content: message.message || 'Command completed successfully',
+            timestamp: Date.now(),
+          });
         } else if (message && message.type === 'heartbeat_ack') {
           console.log('Heartbeat acknowledged');
         }
@@ -512,6 +519,13 @@ const SidePanel = () => {
         return true;
       }
 
+      if (command === '/frames') {
+        portRef.current?.postMessage({
+          type: 'frames',
+        });
+        return true;
+      }
+
       if (command.startsWith('/replay ')) {
         // Parse replay command: /replay <historySessionId>
         // Handle multiple spaces by filtering out empty strings
@@ -533,6 +547,7 @@ const SidePanel = () => {
       // Unsupported command
       appendMessage({
         actor: Actors.SYSTEM,
+        content: `Unsupported command: ${command}. \n\nAvailable commands: /state, /nohighlight, /frames, /replay <historySessionId>`,
         content: t('errors_cmd_unknown', command),
         timestamp: Date.now(),
       });
