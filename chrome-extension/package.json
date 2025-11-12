@@ -1,6 +1,6 @@
 {
   "name": "chrome-extension",
-  "version": "0.1.8",
+  "version": "0.1.12",
   "description": "chrome extension - core settings",
   "type": "module",
   "scripts": {
@@ -9,32 +9,35 @@
     "clean": "pnpm clean:turbo && pnpm clean:node_modules",
     "build": "vite build",
     "dev": "cross-env __DEV__=true vite build --mode development",
-    "test": "vitest run",
+    "test": "pnpm vitest run",
     "lint": "eslint ./ --ext .ts,.js,.tsx,.jsx",
     "lint:fix": "pnpm lint --fix",
     "prettier": "prettier . --write --ignore-path ../.prettierignore",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "@extension/i18n": "workspace:*",
     "@extension/shared": "workspace:*",
     "@extension/storage": "workspace:*",
-    "@langchain/anthropic": "0.3.21",
-    "@langchain/core": "0.3.57",
-    "@langchain/cerebras": "^0.0.1",
-    "@langchain/deepseek": "^0.0.2",
-    "@langchain/google-genai": "0.2.10",
-    "@langchain/groq": "^0.2.2",
-    "@langchain/ollama": "0.2.1",
-    "@langchain/openai": "0.5.12",
-    "@langchain/xai": "^0.0.3",
-    "jsonrepair": "^3.12.0",
-    "puppeteer-core": "24.10.1",
+    "@langchain/anthropic": "0.3.30",
+    "@langchain/cerebras": "0.0.4",
+    "@langchain/core": "0.3.78",
+    "@langchain/deepseek": "0.1.0",
+    "@langchain/google-genai": "0.2.18",
+    "@langchain/groq": "0.2.4",
+    "@langchain/ollama": "0.2.4",
+    "@langchain/openai": "0.6.14",
+    "@langchain/xai": "^0.1.0",
+    "jsonrepair": "3.13.1",
+    "posthog-js": "^1.271.0",
+    "puppeteer-core": "^24.10.1",
     "webextension-polyfill": "^0.12.0",
-    "zod": "3.25.58",
-    "zod-to-json-schema": "^3.24.5"
+    "zod": "^3.25.76",
+    "zod-to-json-schema": "^3.24.6"
   },
   "overrides": {
-    "@langchain/core": "0.3.57"
+    "@langchain/core": "^0.3.78",
+    "form-data": "^4.0.4"
   },
   "devDependencies": {
     "@extension/dev-utils": "workspace:*",
@@ -46,6 +49,7 @@
     "cross-env": "^7.0.3",
     "deepmerge": "^4.3.1",
     "magic-string": "^0.30.10",
-    "ts-loader": "^9.5.1"
+    "ts-loader": "^9.5.1",
+    "vitest": "2.1.9"
   }
 }

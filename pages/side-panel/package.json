@@ -1,6 +1,6 @@
 {
   "name": "@extension/sidepanel",
-  "version": "0.1.8",
+  "version": "0.1.12",
   "description": "chrome extension - side panel",
   "private": true,
   "sideEffects": true,
@@ -22,7 +22,8 @@
     "react-icons": "^5.0.0",
     "webextension-polyfill": "^0.12.0",
     "@extension/shared": "workspace:*",
-    "@extension/storage": "workspace:*"
+    "@extension/storage": "workspace:*",
+    "@extension/i18n": "workspace:*"
   },
   "devDependencies": {
     "@extension/tailwindcss-config": "workspace:*",

@@ -6,6 +6,7 @@ import { PiPlusBold } from 'react-icons/pi';
 import { GrHistory } from 'react-icons/gr';
 import { type Message, Actors, chatHistoryStore, agentModelStore, generalSettingsStore } from '@extension/storage';
 import favoritesStorage, { type FavoritePrompt } from '@extension/storage/lib/prompt/favorites';
+import { t } from '@extension/i18n';
 import MessageList from './components/MessageList';
 import ChatInput from './components/ChatInput';
 import ChatHistoryList from './components/ChatHistoryList';
@@ -21,6 +22,7 @@ declare global {
 }
 
 const SidePanel = () => {
+  const progressMessage = 'Showing progress...';
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputEnabled, setInputEnabled] = useState(true);
   const [showStopButton, setShowStopButton] = useState(false);
@@ -125,12 +127,10 @@ const SidePanel = () => {
 
   const appendMessage = useCallback((newMessage: Message, sessionId?: string | null) => {
     // Don't save progress messages
-    const isProgressMessage = newMessage.content === 'Showing progress...';
+    const isProgressMessage = newMessage.content === progressMessage;
 
     setMessages(prev => {
-      const filteredMessages = prev.filter(
-        (msg, idx) => !(msg.content === 'Showing progress...' && idx === prev.length - 1),
-      );
+      const filteredMessages = prev.filter((msg, idx) => !(msg.content === progressMessage && idx === prev.length - 1));
       return [...filteredMessages, newMessage];
     });
 
@@ -154,7 +154,6 @@ const SidePanel = () => {
       let skip = true;
       let displayProgress = false;
 
-      console.log('handleTaskState isReplaying', isReplayingRef.current);
       switch (actor) {
         case Actors.SYSTEM:
           switch (state) {
@@ -244,6 +243,7 @@ const SidePanel = () => {
           }
           break;
         case Actors.VALIDATOR:
+          // Handle legacy validator events from historical messages
           switch (state) {
             case ExecutionState.STEP_START:
               displayProgress = true;
@@ -275,7 +275,7 @@ const SidePanel = () => {
       if (displayProgress) {
         appendMessage({
           actor,
-          content: 'Showing progress...',
+          content: progressMessage,
           timestamp: timestamp,
         });
       }
@@ -314,7 +314,7 @@ const SidePanel = () => {
           // Handle error messages from service worker
           appendMessage({
             actor: Actors.SYSTEM,
-            content: message.error || 'Unknown error occurred',
+            content: message.error || t('errors_unknown'),
             timestamp: Date.now(),
           });
           setInputEnabled(true);
@@ -329,7 +329,7 @@ const SidePanel = () => {
           // Handle speech-to-text error
           appendMessage({
             actor: Actors.SYSTEM,
-            content: message.error || 'Speech recognition failed',
+            content: message.error || t('chat_stt_recognitionFailed'),
             timestamp: Date.now(),
           });
           setIsProcessingSpeech(false);
@@ -378,7 +378,7 @@ const SidePanel = () => {
       console.error('Failed to establish connection:', error);
       appendMessage({
         actor: Actors.SYSTEM,
-        content: 'Failed to connect to service worker',
+        content: t('errors_conn_serviceWorker'),
         timestamp: Date.now(),
       });
       // Clear any references since connection failed
@@ -411,8 +411,7 @@ const SidePanel = () => {
       if (!replayEnabled) {
         appendMessage({
           actor: Actors.SYSTEM,
-          content:
-            'Replay is disabled in general settings. Please enable "Replay Historical Tasks" in the extension settings to use this feature.',
+          content: t('chat_replay_disabled'),
           timestamp: Date.now(),
         });
         return;
@@ -423,7 +422,7 @@ const SidePanel = () => {
       if (!historyData) {
         appendMessage({
           actor: Actors.SYSTEM,
-          content: `No action history found for session "${historySessionId.substring(0, 20)}...". This session may not contain replayable actions. \n\nIt's a replay session itself (replay sessions cannot be replayed again), or it was created before the replay feature was available.`,
+          content: t('chat_replay_noHistory', historySessionId.substring(0, 20)),
           timestamp: Date.now(),
         });
         return;
@@ -483,7 +482,7 @@ const SidePanel = () => {
 
       appendMessage({
         actor: Actors.SYSTEM,
-        content: `Starting replay of task:\n\n"${historyData.task}"`,
+        content: t('chat_replay_starting', historyData.task),
         timestamp: Date.now(),
       });
       setIsReplaying(true);
@@ -491,7 +490,7 @@ const SidePanel = () => {
       const errorMessage = err instanceof Error ? err.message : String(err);
       appendMessage({
         actor: Actors.SYSTEM,
-        content: `Replay failed: ${errorMessage}`,
+        content: t('chat_replay_failed', errorMessage),
         timestamp: Date.now(),
       });
     }
@@ -534,7 +533,7 @@ const SidePanel = () => {
         if (parts.length !== 2) {
           appendMessage({
             actor: Actors.SYSTEM,
-            content: 'Invalid replay command format. Usage: /replay <historySessionId>',
+            content: t('chat_replay_invalidArgs'),
             timestamp: Date.now(),
           });
           return true;
@@ -549,6 +548,7 @@ const SidePanel = () => {
       appendMessage({
         actor: Actors.SYSTEM,
         content: `Unsupported command: ${command}. \n\nAvailable commands: /state, /nohighlight, /frames, /replay <historySessionId>`,
+        content: t('errors_cmd_unknown', command),
         timestamp: Date.now(),
       });
       return true;
@@ -564,7 +564,7 @@ const SidePanel = () => {
     }
   };
 
-  const handleSendMessage = async (text: string) => {
+  const handleSendMessage = async (text: string, displayText?: string) => {
     console.log('handleSendMessage', text);
 
     // Trim the input text first
@@ -597,8 +597,10 @@ const SidePanel = () => {
 
       // Create a new chat session for this task if not in follow-up mode
       if (!isFollowUpMode) {
+        // Use display text for session title if available, otherwise use full text
+        const titleText = displayText || text;
         const newSession = await chatHistoryStore.createSession(
-          text.substring(0, 50) + (text.length > 50 ? '...' : ''),
+          titleText.substring(0, 50) + (titleText.length > 50 ? '...' : ''),
         );
         console.log('newSession', newSession);
 
@@ -610,7 +612,7 @@ const SidePanel = () => {
 
       const userMessage = {
         actor: Actors.USER,
-        content: text,
+        content: displayText || text, // Use display text for chat UI, full text for background service
         timestamp: Date.now(),
       };
 
@@ -870,7 +872,7 @@ const SidePanel = () => {
       if (permissionStatus.state === 'denied') {
         appendMessage({
           actor: Actors.SYSTEM,
-          content: 'Microphone access denied. Please enable microphone permissions in Chrome settings.',
+          content: t('chat_stt_microphone_permissionDenied'),
           timestamp: Date.now(),
         });
         return;
@@ -964,7 +966,7 @@ const SidePanel = () => {
               console.error('Failed to send audio for speech-to-text:', error);
               appendMessage({
                 actor: Actors.SYSTEM,
-                content: 'Failed to process speech recording',
+                content: t('chat_stt_processingFailed'),
                 timestamp: Date.now(),
               });
               setIsRecording(false);
@@ -992,12 +994,12 @@ const SidePanel = () => {
     } catch (error) {
       console.error('Error accessing microphone:', error);
 
-      let errorMessage = 'Failed to access microphone. ';
+      let errorMessage = t('chat_stt_microphone_accessFailed');
       if (error instanceof Error) {
         if (error.name === 'NotAllowedError') {
-          errorMessage += 'Please grant microphone permission.';
+          errorMessage += t('chat_stt_microphone_grantPermission');
         } else if (error.name === 'NotFoundError') {
-          errorMessage += 'No microphone found.';
+          errorMessage += t('chat_stt_microphone_notFound');
         } else {
           errorMessage += error.message;
         }
@@ -1023,8 +1025,8 @@ const SidePanel = () => {
                 type="button"
                 onClick={() => handleBackToChat(false)}
                 className={`${isDarkMode ? 'text-sky-400 hover:text-sky-300' : 'text-sky-400 hover:text-sky-500'} cursor-pointer`}
-                aria-label="Back to chat">
-                ← Back
+                aria-label={t('nav_back_a11y')}>
+                {t('nav_back')}
               </button>
             ) : (
               <img src="/icon-128.png" alt="Extension Logo" className="size-6" />
@@ -1038,7 +1040,7 @@ const SidePanel = () => {
                   onClick={handleNewChat}
                   onKeyDown={e => e.key === 'Enter' && handleNewChat()}
                   className={`header-icon ${isDarkMode ? 'text-sky-400 hover:text-sky-300' : 'text-sky-400 hover:text-sky-500'} cursor-pointer`}
-                  aria-label="New Chat"
+                  aria-label={t('nav_newChat_a11y')}
                   tabIndex={0}>
                   <PiPlusBold size={20} />
                 </button>
@@ -1047,7 +1049,7 @@ const SidePanel = () => {
                   onClick={handleLoadHistory}
                   onKeyDown={e => e.key === 'Enter' && handleLoadHistory()}
                   className={`header-icon ${isDarkMode ? 'text-sky-400 hover:text-sky-300' : 'text-sky-400 hover:text-sky-500'} cursor-pointer`}
-                  aria-label="Load History"
+                  aria-label={t('nav_loadHistory_a11y')}
                   tabIndex={0}>
                   <GrHistory size={20} />
                 </button>
@@ -1065,7 +1067,7 @@ const SidePanel = () => {
               onClick={() => chrome.runtime.openOptionsPage()}
               onKeyDown={e => e.key === 'Enter' && chrome.runtime.openOptionsPage()}
               className={`header-icon ${isDarkMode ? 'text-sky-400 hover:text-sky-300' : 'text-sky-400 hover:text-sky-500'} cursor-pointer`}
-              aria-label="Settings"
+              aria-label={t('nav_settings_a11y')}
               tabIndex={0}>
               <FiSettings size={20} />
             </button>
@@ -1090,7 +1092,7 @@ const SidePanel = () => {
                 className={`flex flex-1 items-center justify-center p-8 ${isDarkMode ? 'text-sky-300' : 'text-sky-600'}`}>
                 <div className="text-center">
                   <div className="mx-auto mb-4 size-8 animate-spin rounded-full border-2 border-sky-400 border-t-transparent"></div>
-                  <p>Checking configuration...</p>
+                  <p>{t('status_checkingConfig')}</p>
                 </div>
               </div>
             )}
@@ -1102,15 +1104,15 @@ const SidePanel = () => {
                 <div className="max-w-md text-center">
                   <img src="/icon-128.png" alt="Nanobrowser Logo" className="mx-auto mb-4 size-12" />
                   <h3 className={`mb-2 text-lg font-semibold ${isDarkMode ? 'text-sky-200' : 'text-sky-700'}`}>
-                    Welcome to Nanobrowser!
+                    {t('welcome_title')}
                   </h3>
-                  <p className="mb-4">To get started, please configure your API keys in the settings page.</p>
+                  <p className="mb-4">{t('welcome_instruction')}</p>
                   <button
                     onClick={() => chrome.runtime.openOptionsPage()}
                     className={`my-4 rounded-lg px-4 py-2 font-medium transition-colors ${
                       isDarkMode ? 'bg-sky-600 text-white hover:bg-sky-700' : 'bg-sky-500 text-white hover:bg-sky-600'
                     }`}>
-                    Open Settings
+                    {t('welcome_openSettings')}
                   </button>
                   <div className="mt-4 text-sm opacity-75">
                     <a
@@ -1118,7 +1120,7 @@ const SidePanel = () => {
                       target="_blank"
                       rel="noopener noreferrer"
                       className={`${isDarkMode ? 'text-sky-400 hover:text-sky-300' : 'text-sky-700 hover:text-sky-600'}`}>
-                      Quick Start Guide
+                      {t('welcome_quickStart')}
                     </a>
                     <span className="mx-2">•</span>
                     <a
@@ -1126,7 +1128,7 @@ const SidePanel = () => {
                       target="_blank"
                       rel="noopener noreferrer"
                       className={`${isDarkMode ? 'text-sky-400 hover:text-sky-300' : 'text-sky-700 hover:text-sky-600'}`}>
-                      Join Our Community
+                      {t('welcome_joinCommunity')}
                     </a>
                   </div>
                 </div>

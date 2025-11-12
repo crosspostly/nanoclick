@@ -8,14 +8,79 @@ import { ChatCerebras } from '@langchain/cerebras';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { ChatOllama } from '@langchain/ollama';
 import { ChatDeepSeek } from '@langchain/deepseek';
+import { AIMessage } from '@langchain/core/messages';
+import type { BaseMessage } from '@langchain/core/messages';
 
 const maxTokens = 1024 * 4;
 
-function isOpenAIOModel(modelName: string): boolean {
-  if (modelName.startsWith('openai/')) {
-    return modelName.startsWith('openai/o');
+// Custom ChatLlama class to handle Llama API response format
+class ChatLlama extends ChatOpenAI {
+  constructor(args: any) {
+    super(args);
   }
-  return modelName.startsWith('o');
+
+  // Override the completionWithRetry method to intercept and transform the response
+  async completionWithRetry(request: any, options?: any): Promise<any> {
+    try {
+      // Make the request using the parent's implementation
+      const response = await super.completionWithRetry(request, options);
+
+      // Check if this is a Llama API response format
+      if (response?.completion_message?.content?.text) {
+        // Transform Llama API response to OpenAI format
+        const transformedResponse = {
+          id: response.id || 'llama-response',
+          object: 'chat.completion',
+          created: Date.now(),
+          model: request.model,
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: 'assistant',
+                content: response.completion_message.content.text,
+              },
+              finish_reason: response.completion_message.stop_reason || 'stop',
+            },
+          ],
+          usage: {
+            prompt_tokens: response.metrics?.find((m: any) => m.metric === 'num_prompt_tokens')?.value || 0,
+            completion_tokens: response.metrics?.find((m: any) => m.metric === 'num_completion_tokens')?.value || 0,
+            total_tokens: response.metrics?.find((m: any) => m.metric === 'num_total_tokens')?.value || 0,
+          },
+        };
+
+        return transformedResponse;
+      }
+
+      return response;
+    } catch (error: any) {
+      console.error(`[ChatLlama] Error during API call:`, error);
+      throw error;
+    }
+  }
+}
+
+// O series models or GPT-5 models that support reasoning
+function isOpenAIReasoningModel(modelName: string): boolean {
+  let modelNameWithoutProvider = modelName;
+  if (modelName.startsWith('openai/')) {
+    modelNameWithoutProvider = modelName.substring(7);
+  }
+  return (
+    modelNameWithoutProvider.startsWith('o') ||
+    (modelNameWithoutProvider.startsWith('gpt-5') && !modelNameWithoutProvider.startsWith('gpt-5-chat'))
+  );
+}
+
+// Function to check if a model is an Anthropic Opus model
+function isAnthropicOpusModel(modelName: string): boolean {
+  // Extract the model name without provider prefix if present
+  let modelNameWithoutProvider = modelName;
+  if (modelName.startsWith('anthropic/')) {
+    modelNameWithoutProvider = modelName.substring(10);
+  }
+  return modelNameWithoutProvider.startsWith('claude-opus');
 }
 
 function createOpenAIChatModel(
@@ -31,7 +96,7 @@ function createOpenAIChatModel(
     configuration?: Record<string, unknown>;
     modelKwargs?: {
       max_completion_tokens: number;
-      reasoning_effort?: 'low' | 'medium' | 'high';
+      reasoning_effort?: 'minimal' | 'low' | 'medium' | 'high';
     };
     topP?: number;
     temperature?: number;
@@ -56,7 +121,7 @@ function createOpenAIChatModel(
   }
 
   // O series models have different parameters
-  if (isOpenAIOModel(modelConfig.modelName)) {
+  if (isOpenAIReasoningModel(modelConfig.modelName)) {
     args.modelKwargs = {
       max_completion_tokens: maxTokens,
     };
@@ -132,7 +197,7 @@ function createAzureChatModel(providerConfig: ProviderConfig, modelConfig: Model
   }
 
   // Check if the Azure deployment is using an "o" series model (GPT-4o, etc.)
-  const isOSeriesModel = isOpenAIOModel(deploymentName);
+  const isOSeriesModel = isOpenAIReasoningModel(deploymentName);
 
   // Use AzureChatOpenAI with specific parameters
   const args = {
@@ -181,14 +246,23 @@ export function createChatModel(providerConfig: ProviderConfig, modelConfig: Mod
       return createOpenAIChatModel(providerConfig, modelConfig, undefined);
     }
     case ProviderTypeEnum.Anthropic: {
-      const args = {
-        model: modelConfig.modelName,
-        apiKey: providerConfig.apiKey,
-        maxTokens,
-        temperature,
-        topP,
-        clientOptions: {},
-      };
+      // For Opus models, only include temperature, not topP
+      const args = isAnthropicOpusModel(modelConfig.modelName)
+        ? {
+            model: modelConfig.modelName,
+            apiKey: providerConfig.apiKey,
+            maxTokens,
+            temperature,
+            clientOptions: {},
+          }
+        : {
+            model: modelConfig.modelName,
+            apiKey: providerConfig.apiKey,
+            maxTokens,
+            temperature,
+            topP,
+            clientOptions: {},
+          };
       return new ChatAnthropic(args);
     }
     case ProviderTypeEnum.DeepSeek: {
@@ -275,6 +349,31 @@ export function createChatModel(providerConfig: ProviderConfig, modelConfig: Mod
           'X-Title': 'Nanobrowser',
         },
       });
+    }
+    case ProviderTypeEnum.Llama: {
+      // Llama API has a different response format, use custom ChatLlama class
+      const args: {
+        model: string;
+        apiKey?: string;
+        configuration?: Record<string, unknown>;
+        topP?: number;
+        temperature?: number;
+        maxTokens?: number;
+      } = {
+        model: modelConfig.modelName,
+        apiKey: providerConfig.apiKey,
+        topP: (modelConfig.parameters?.topP ?? 0.1) as number,
+        temperature: (modelConfig.parameters?.temperature ?? 0.1) as number,
+        maxTokens,
+      };
+
+      const configuration: Record<string, unknown> = {};
+      if (providerConfig.baseUrl) {
+        configuration.baseURL = providerConfig.baseUrl;
+      }
+      args.configuration = configuration;
+
+      return new ChatLlama(args);
     }
     default: {
       // by default, we think it's a openai-compatible provider

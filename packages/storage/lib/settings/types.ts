@@ -2,7 +2,6 @@
 export enum AgentNameEnum {
   Planner = 'planner',
   Navigator = 'navigator',
-  Validator = 'validator',
 }
 
 // Provider type, types before CustomOpenAI are built-in providers, CustomOpenAI is a custom provider
@@ -19,32 +18,33 @@ export enum ProviderTypeEnum {
   OpenRouter = 'openrouter',
   Groq = 'groq',
   Cerebras = 'cerebras',
+  Llama = 'llama',
   CustomOpenAI = 'custom_openai',
 }
 
 // Default supported models for each built-in provider
 export const llmProviderModelNames = {
-  [ProviderTypeEnum.OpenAI]: ['gpt-4.1', 'gpt-4.1-mini', 'gpt-4o', 'gpt-4o-mini', 'o4-mini', 'o3'],
+  [ProviderTypeEnum.OpenAI]: ['gpt-5', 'gpt-5-mini', 'gpt-5-chat-latest', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4o'],
   [ProviderTypeEnum.Anthropic]: [
-    'claude-sonnet-4-20250514',
+    'claude-opus-4-1',
+    'claude-sonnet-4-0',
     'claude-3-7-sonnet-latest',
-    'claude-3-5-sonnet-latest',
     'claude-3-5-haiku-latest',
   ],
   [ProviderTypeEnum.DeepSeek]: ['deepseek-chat', 'deepseek-reasoner'],
   [ProviderTypeEnum.Gemini]: ['gemini-2.5-flash', 'gemini-2.5-pro'],
   [ProviderTypeEnum.Grok]: ['grok-3', 'grok-3-fast', 'grok-3-mini', 'grok-3-mini-fast'],
   [ProviderTypeEnum.Ollama]: ['qwen3:14b', 'falcon3:10b', 'qwen2.5-coder:14b', 'mistral-small:24b'],
-  [ProviderTypeEnum.AzureOpenAI]: ['gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano', 'gpt-4o', 'gpt-4o-mini', 'o4-mini', 'o3'],
-  [ProviderTypeEnum.OpenRouter]: [
-    'openai/gpt-4.1',
-    'openai/gpt-4.1-mini',
-    'openai/o4-mini',
-    'openai/gpt-4o-2024-11-20',
-    'google/gemini-2.5-flash-preview',
-  ],
+  [ProviderTypeEnum.AzureOpenAI]: ['gpt-5', 'gpt-5-mini', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4o'],
+  [ProviderTypeEnum.OpenRouter]: ['google/gemini-2.5-pro', 'google/gemini-2.5-flash', 'openai/gpt-4o-2024-11-20'],
   [ProviderTypeEnum.Groq]: ['llama-3.3-70b-versatile'],
   [ProviderTypeEnum.Cerebras]: ['llama-3.3-70b'],
+  [ProviderTypeEnum.Llama]: [
+    'Llama-3.3-70B-Instruct',
+    'Llama-3.3-8B-Instruct',
+    'Llama-4-Maverick-17B-128E-Instruct-FP8',
+    'Llama-4-Scout-17B-16E-Instruct-FP8',
+  ],
   // Custom OpenAI providers don't have predefined models as they are user-defined
 };
 
@@ -59,10 +59,6 @@ export const llmProviderParameters = {
       temperature: 0.3,
       topP: 0.85,
     },
-    [AgentNameEnum.Validator]: {
-      temperature: 0.1,
-      topP: 0.8,
-    },
   },
   [ProviderTypeEnum.Anthropic]: {
     [AgentNameEnum.Planner]: {
@@ -71,10 +67,6 @@ export const llmProviderParameters = {
     },
     [AgentNameEnum.Navigator]: {
       temperature: 0.2,
-      topP: 0.5,
-    },
-    [AgentNameEnum.Validator]: {
-      temperature: 0.1,
       topP: 0.5,
     },
   },
@@ -87,10 +79,6 @@ export const llmProviderParameters = {
       temperature: 0.3,
       topP: 0.85,
     },
-    [AgentNameEnum.Validator]: {
-      temperature: 0.1,
-      topP: 0.8,
-    },
   },
   [ProviderTypeEnum.Grok]: {
     [AgentNameEnum.Planner]: {
@@ -100,10 +88,6 @@ export const llmProviderParameters = {
     [AgentNameEnum.Navigator]: {
       temperature: 0.3,
       topP: 0.85,
-    },
-    [AgentNameEnum.Validator]: {
-      temperature: 0.1,
-      topP: 0.8,
     },
   },
   [ProviderTypeEnum.Ollama]: {
@@ -115,10 +99,6 @@ export const llmProviderParameters = {
       temperature: 0.1,
       topP: 0.85,
     },
-    [AgentNameEnum.Validator]: {
-      temperature: 0.1,
-      topP: 0.8,
-    },
   },
   [ProviderTypeEnum.AzureOpenAI]: {
     [AgentNameEnum.Planner]: {
@@ -128,10 +108,6 @@ export const llmProviderParameters = {
     [AgentNameEnum.Navigator]: {
       temperature: 0.3,
       topP: 0.85,
-    },
-    [AgentNameEnum.Validator]: {
-      temperature: 0.1,
-      topP: 0.8,
     },
   },
   [ProviderTypeEnum.OpenRouter]: {
@@ -143,10 +119,6 @@ export const llmProviderParameters = {
       temperature: 0.3,
       topP: 0.85,
     },
-    [AgentNameEnum.Validator]: {
-      temperature: 0.1,
-      topP: 0.8,
-    },
   },
   [ProviderTypeEnum.Groq]: {
     [AgentNameEnum.Planner]: {
@@ -156,10 +128,6 @@ export const llmProviderParameters = {
     [AgentNameEnum.Navigator]: {
       temperature: 0.3,
       topP: 0.85,
-    },
-    [AgentNameEnum.Validator]: {
-      temperature: 0.1,
-      topP: 0.8,
     },
   },
   [ProviderTypeEnum.Cerebras]: {
@@ -171,9 +139,15 @@ export const llmProviderParameters = {
       temperature: 0.3,
       topP: 0.85,
     },
-    [AgentNameEnum.Validator]: {
-      temperature: 0.1,
-      topP: 0.8,
+  },
+  [ProviderTypeEnum.Llama]: {
+    [AgentNameEnum.Planner]: {
+      temperature: 0.7,
+      topP: 0.9,
+    },
+    [AgentNameEnum.Navigator]: {
+      temperature: 0.3,
+      topP: 0.85,
     },
   },
 };

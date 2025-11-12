@@ -1,7 +1,12 @@
 import { type BaseMessage, AIMessage, HumanMessage, type SystemMessage, ToolMessage } from '@langchain/core/messages';
 import { MessageHistory, MessageMetadata } from '@src/background/agent/messages/views';
 import { createLogger } from '@src/background/log';
-import { wrapUserRequest } from '@src/background/agent/messages/utils';
+import {
+  filterExternalContent,
+  wrapUserRequest,
+  splitUserTextAndAttachments,
+  wrapAttachments,
+} from '@src/background/agent/messages/utils';
 
 const logger = createLogger('MessageManager');
 
@@ -139,9 +144,20 @@ export default class MessageManager {
    * @returns A HumanMessage object containing the task instructions
    */
   private static taskInstructions(task: string): HumanMessage {
-    const content = `Your ultimate task is: """${task}""". If you achieved your ultimate task, stop everything and use the done action in the next step to complete the task. If not, continue as usual.`;
-    const wrappedContent = wrapUserRequest(content);
-    return new HumanMessage({ content: wrappedContent });
+    const { userText, attachmentsInner } = splitUserTextAndAttachments(task);
+
+    // Filter and wrap user text
+    const cleanedTask = filterExternalContent(userText);
+    const content = `Your ultimate task is: """${cleanedTask}""". If you achieved your ultimate task, stop everything and use the done action in the next step to complete the task. If not, continue as usual.`;
+    const wrappedUser = wrapUserRequest(content, false);
+
+    // Filter and wrap attachments as untrusted content
+    if (attachmentsInner && attachmentsInner.length > 0) {
+      const wrappedFiles = wrapAttachments(attachmentsInner);
+      return new HumanMessage({ content: `${wrappedUser}\n\n${wrappedFiles}` });
+    }
+
+    return new HumanMessage({ content: wrappedUser });
   }
 
   /**
@@ -157,9 +173,21 @@ export default class MessageManager {
    * @param newTask - The raw description of the new task
    */
   public addNewTask(newTask: string): void {
-    const content = `Your new ultimate task is: """${newTask}""". This is a follow-up of the previous tasks. Make sure to take all of the previous context into account and finish your new ultimate task.`;
-    const wrappedContent = wrapUserRequest(content);
-    const msg = new HumanMessage({ content: wrappedContent });
+    const { userText, attachmentsInner } = splitUserTextAndAttachments(newTask);
+
+    // Filter and wrap user text
+    const cleanedTask = filterExternalContent(userText);
+    const content = `Your new ultimate task is: """${cleanedTask}""". This is a follow-up of the previous tasks. Make sure to take all of the previous context into account and finish your new ultimate task.`;
+    const wrappedUser = wrapUserRequest(content, false);
+
+    // Filter and wrap attachments as untrusted content
+    let finalContent = wrappedUser;
+    if (attachmentsInner && attachmentsInner.length > 0) {
+      const wrappedFiles = wrapAttachments(attachmentsInner);
+      finalContent = `${wrappedUser}\n\n${wrappedFiles}`;
+    }
+
+    const msg = new HumanMessage({ content: finalContent });
     this.addMessageWithTokens(msg);
   }
 
@@ -170,7 +198,8 @@ export default class MessageManager {
    */
   public addPlan(plan?: string, position?: number): void {
     if (plan) {
-      const msg = new AIMessage({ content: `<plan>${plan}</plan>` });
+      const cleanedPlan = filterExternalContent(plan, false);
+      const msg = new AIMessage({ content: `<plan>${cleanedPlan}</plan>` });
       this.addMessageWithTokens(msg, null, position);
     }
   }
@@ -187,7 +216,7 @@ export default class MessageManager {
    * Adds a model output message to the history
    * @param modelOutput - The model output
    */
-  public addModelOutput(modelOutput: Record<string, any>): void {
+  public addModelOutput(modelOutput: Record<string, unknown>): void {
     const toolCallId = this.nextToolId();
     const toolCalls = [
       {
@@ -217,14 +246,27 @@ export default class MessageManager {
   }
 
   public getMessages(): BaseMessage[] {
-    const messages = this.history.messages.map(m => m.message);
+    const messages = this.history.messages
+      .filter(m => {
+        if (!m.message) {
+          console.error(`[MessageManager] Filtering out message with undefined message property:`, m);
+          return false;
+        }
+        return true;
+      })
+      .map(m => m.message);
 
     let totalInputTokens = 0;
     logger.debug(`Messages in history: ${this.history.messages.length}:`);
 
     for (const m of this.history.messages) {
       totalInputTokens += m.metadata.tokens;
-      logger.debug(`${m.message.constructor.name} - Token count: ${m.metadata.tokens}`);
+      if (m.message) {
+        logger.debug(`${m.message.constructor.name} - Token count: ${m.metadata.tokens}`);
+      } else {
+        console.error(`[MessageManager] Found message with undefined message property:`, m);
+        logger.debug(`Message with undefined message property - Token count: ${m.metadata.tokens}`);
+      }
     }
 
     logger.debug(`Total input tokens: ${totalInputTokens}`);

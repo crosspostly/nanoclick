@@ -1,10 +1,16 @@
 document.addEventListener('DOMContentLoaded', () => {
+  // Set up i18n text content
+  document.getElementById('title').textContent = chrome.i18n.getMessage('permissions_microphone_title');
+  document.getElementById('description').textContent = chrome.i18n.getMessage('permissions_microphone_description');
+
   const requestButton = document.getElementById('requestPermission');
   const statusText = document.getElementById('status');
 
+  requestButton.textContent = chrome.i18n.getMessage('permissions_microphone_grantButton');
+
   requestButton.addEventListener('click', async () => {
     try {
-      statusText.textContent = 'Requesting microphone permission...';
+      statusText.textContent = chrome.i18n.getMessage('permissions_microphone_requesting');
       statusText.className = '';
 
       // Request microphone permission
@@ -14,9 +20,9 @@ document.addEventListener('DOMContentLoaded', () => {
       stream.getTracks().forEach(track => track.stop());
 
       // Update UI
-      statusText.textContent = '✅ Microphone permission granted! You can now use voice input.';
+      statusText.textContent = chrome.i18n.getMessage('permissions_microphone_grantedSuccess');
       statusText.className = 'success';
-      requestButton.textContent = 'Permission Granted';
+      requestButton.textContent = chrome.i18n.getMessage('permissions_microphone_grantedButton');
       requestButton.disabled = true;
 
       // Close window after a short delay
@@ -26,12 +32,12 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (error) {
       console.error('Permission denied or error:', error);
 
-      let errorMessage = 'Permission denied. ';
+      let errorMessage = chrome.i18n.getMessage('permissions_microphone_denied');
 
       if (error.name === 'NotAllowedError') {
-        errorMessage += 'Please click "Allow" when prompted for microphone access.';
+        errorMessage += chrome.i18n.getMessage('permissions_microphone_allowHelp');
       } else if (error.name === 'NotFoundError') {
-        errorMessage += 'No microphone found. Please check your audio devices.';
+        errorMessage += chrome.i18n.getMessage('permissions_microphone_notFound');
       } else {
         errorMessage += error.message;
       }
@@ -46,9 +52,9 @@ document.addEventListener('DOMContentLoaded', () => {
     .query({ name: 'microphone' })
     .then(permissionStatus => {
       if (permissionStatus.state === 'granted') {
-        statusText.textContent = '✅ Microphone permission already granted!';
+        statusText.textContent = chrome.i18n.getMessage('permissions_microphone_alreadyGranted');
         statusText.className = 'success';
-        requestButton.textContent = 'Permission Already Granted';
+        requestButton.textContent = chrome.i18n.getMessage('permissions_microphone_alreadyGrantedButton');
         requestButton.disabled = true;
       }
     })
