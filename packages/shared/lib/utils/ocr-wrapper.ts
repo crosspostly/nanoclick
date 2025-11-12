@@ -3,7 +3,7 @@
 /**
  * OCR Wrapper для Nanoclick
  * Портирован из crosspostly/click ocr_handler.py
- * 
+ *
  * Поддержка:
  * - Web OCR API (OCR.space, Google Vision)
  * - Tesseract.js для client-side OCR
@@ -62,11 +62,22 @@ export class OCRWrapper {
   private async initOCR() {
     if (this.config.engine === 'tesseract') {
       try {
-        // Dynamically import Tesseract.js (client-side OCR)
-        const Tesseract = await import('tesseract.js');
-        this.tesseract = Tesseract;
-        this.isAvailable = true;
-        console.log('[OCR] Tesseract.js initialized');
+        // Check if tesseract.js is available
+        // Note: tesseract.js is not in dependencies - install with: pnpm add tesseract.js
+        console.warn('[OCR] tesseract.js not available - install with: pnpm add tesseract.js');
+        this.isAvailable = false;
+        return;
+
+        // This code will work when tesseract.js is installed:
+        // const Tesseract = await import('tesseract.js').catch(() => null);
+        // if (!Tesseract) {
+        //   console.error('[OCR] tesseract.js not available - install with: pnpm add tesseract.js');
+        //   this.isAvailable = false;
+        //   return;
+        // }
+        // this.tesseract = Tesseract;
+        // this.isAvailable = true;
+        // console.log('[OCR] Tesseract.js initialized');
       } catch (error) {
         console.error('[OCR] Failed to load Tesseract.js:', error);
         this.isAvailable = false;
@@ -76,7 +87,7 @@ export class OCRWrapper {
       this.isAvailable = !!this.config.apiKey;
     }
   }
-  
+
   private async getImageHash(imageData: string): Promise<string> {
     const encoder = new TextEncoder();
     const data = encoder.encode(imageData);
@@ -165,21 +176,18 @@ export class OCRWrapper {
       return null;
     }
     try {
-      const response = await fetch(
-        `https://vision.googleapis.com/v1/images:annotate?key=${this.config.apiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            requests: [
-              {
-                image: { content: imageBase64 },
-                features: [{ type: 'TEXT_DETECTION' }],
-              },
-            ],
-          }),
-        },
-      );
+      const response = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${this.config.apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          requests: [
+            {
+              image: { content: imageBase64 },
+              features: [{ type: 'TEXT_DETECTION' }],
+            },
+          ],
+        }),
+      });
       const data = await response.json();
       const annotations = data.responses?.[0]?.textAnnotations;
       return annotations?.[0]?.description || null;
