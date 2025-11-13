@@ -14,6 +14,31 @@ import { GeminiWrapper } from '@extension/shared';
 
 const maxTokens = 1024 * 4;
 
+/**
+ * Safe base64 encoding that works with UTF-8 strings
+ * Fixes: "Failed to execute 'btoa' on 'WorkerGlobalScope': The string to be encoded contains characters outside of the Latin1 range."
+ */
+function safeBase64Encode(str: string): string {
+  try {
+    // In browser/service worker environment, use TextEncoder for proper UTF-8 handling
+    const encoder = new TextEncoder();
+    const uint8Array = encoder.encode(str);
+    
+    // Convert Uint8Array to binary string
+    let binaryString = '';
+    for (let i = 0; i < uint8Array.length; i++) {
+      binaryString += String.fromCharCode(uint8Array[i]);
+    }
+    
+    // Now safe to use btoa on binary string
+    return btoa(binaryString);
+  } catch (error) {
+    console.error('[safeBase64Encode] Encoding failed:', error);
+    // Fallback: return a hash of the string length as a simple identifier
+    return `hash_${str.length}_${Date.now()}`;
+  }
+}
+
 // Rate limiter for Gemini API to respect 30 requests/minute limit
 class GeminiRateLimiter {
   private lastRequest = 0;
@@ -364,10 +389,12 @@ class GeminiChatModel extends ChatGoogleGenerativeAI {
 
   /**
    * Hash messages for caching
+   * Fixed: Use safeBase64Encode instead of btoa to support UTF-8 characters
    */
   private hashMessages(messages: BaseMessage[]): string {
     const content = messages.map(m => m.content).join('|');
-    return btoa(content).slice(0, 16);
+    // Use safe UTF-8 encoding instead of btoa
+    return safeBase64Encode(content).slice(0, 16);
   }
 
   /**
