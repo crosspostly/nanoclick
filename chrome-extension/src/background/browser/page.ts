@@ -103,6 +103,10 @@ export default class Page {
     return this._validWebPage && this._puppeteerPage !== null;
   }
 
+  getPuppeteerPage(): PuppeteerPage | null {
+    return this._puppeteerPage;
+  }
+
   async attachPuppeteer(): Promise<boolean> {
     if (!this._validWebPage) {
       return false;
