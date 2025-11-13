@@ -13,6 +13,7 @@ export interface OCRConfig {
   engine: 'tesseract' | 'ocr.space' | 'google_vision';
   apiKey?: string;
   language?: string;
+  useDOMFallback?: boolean;
 }
 
 export interface OCRResult {
@@ -31,12 +32,14 @@ export class OCRWrapper {
   private tesseract: any;
   private cache: Map<string, string> = new Map();
   private isAvailable = false;
+  private useDOMFallback = true;
 
-  constructor(config: OCRConfig) {
+  constructor(config: OCRConfig & { useDOMFallback?: boolean }) {
     this.config = {
       language: 'eng',
       ...config,
     };
+    this.useDOMFallback = config.useDOMFallback ?? true;
     this.initOCR();
   }
 
@@ -77,9 +80,55 @@ export class OCRWrapper {
   }
 
   /**
-   * Extract all text from image
+   * Extract all text from image with fallback to DOM
    */
   async extractText(imageData: string, useCache = true): Promise<string | null> {
+    const startTime = Date.now();
+    
+    // Try OCR first
+    try {
+      const result = await this.extractTextFromOCR(imageData, useCache);
+      if (result) {
+        console.log('[OCR] OCR extraction successful');
+        return result;
+      }
+    } catch (ocrError) {
+      console.warn('[OCR] Failed, attempting DOM fallback', {
+        error: ocrError instanceof Error ? ocrError.message : String(ocrError),
+      });
+      
+      if (!this.useDOMFallback) {
+        throw ocrError;
+      }
+      
+      // Fallback: try DOM parsing
+      try {
+        const domText = await this.extractTextFromDOM();
+        console.info('[OCR] DOM fallback successful');
+        
+        // Cache the DOM fallback result
+        if (domText && useCache) {
+          const hash = await this.getImageHash(imageData);
+          this.cache.set(hash, domText);
+        }
+        
+        return domText;
+      } catch (domError) {
+        console.error('[OCR] Both OCR and DOM fallback failed', {
+          ocr_error: ocrError instanceof Error ? ocrError.message : String(ocrError),
+          dom_error: domError instanceof Error ? domError.message : String(domError),
+        });
+        throw new Error('All text extraction methods failed');
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Extract text using OCR engines only
+   */
+  private async extractTextFromOCR(imageData: string, useCache = true): Promise<string | null> {
     if (!this.isAvailable) {
       console.warn('[OCR] OCR engine not available');
       return null;
@@ -115,6 +164,31 @@ export class OCRWrapper {
     }
 
     return text;
+  }
+
+  /**
+   * Extract text from DOM as fallback when OCR fails
+   */
+  private async extractTextFromDOM(): Promise<string> {
+    try {
+      // Try to get text from the current page's DOM
+      if (typeof document !== 'undefined' && document.body) {
+        // Browser environment
+        const pageText = document.body.innerText || document.body.textContent || '';
+        return pageText.trim();
+      } else if (typeof globalThis !== 'undefined' && (globalThis as any).document?.body) {
+        // Alternative global access
+        const pageText = (globalThis as any).document.body.innerText || (globalThis as any).document.body.textContent || '';
+        return pageText.trim();
+      } else {
+        // Fallback for non-browser environments
+        console.warn('[OCR] DOM fallback not available in this environment');
+        throw new Error('DOM extraction not available');
+      }
+    } catch (error) {
+      console.error('[OCR] DOM extraction failed:', error);
+      throw error;
+    }
   }
 
   /**

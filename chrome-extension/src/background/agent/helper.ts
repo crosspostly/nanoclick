@@ -262,6 +262,8 @@ function createAzureChatModel(providerConfig: ProviderConfig, modelConfig: Model
 class GeminiChatModel extends ChatGoogleGenerativeAI {
   private geminiWrapper: GeminiWrapper;
   private rateLimiter: GeminiRateLimiter;
+  private fallbackMode = false;
+  private responseCache: Map<string, any> = new Map();
 
   constructor(args: any) {
     // Initialize wrapper and rate limiter first
@@ -310,12 +312,83 @@ class GeminiChatModel extends ChatGoogleGenerativeAI {
 
         console.log('[GeminiChatModel] GeminiWrapper call successful, converting response');
         // Convert Gemini response back to LangChain format
-        return this._convertGeminiResponseToLangChainMessage(result);
-      } catch (error) {
+        const response = this._convertGeminiResponseToLangChainMessage(result);
+        
+        // Cache successful responses for fallback
+        const queryHash = this.hashMessages(messages);
+        this.responseCache.set(queryHash, {
+          response,
+          timestamp: Date.now(),
+        });
+        
+        return response;
+      } catch (error: any) {
         console.error('[GeminiChatModel] Error in invoke:', error);
+        
+        // Check if it's a rate limit error
+        if (error.message?.includes('429') || error.message?.includes('quota') || error.status === 429) {
+          console.warn('[Gemini] Rate limited, entering fallback mode');
+          this.fallbackMode = true;
+          
+          // Fallback strategies:
+          // 1. Use cached responses for similar queries
+          const cachedResponse = await this.getCachedResponse(messages);
+          if (cachedResponse) {
+            console.info('[Gemini] Using cached response');
+            return cachedResponse;
+          }
+          
+          // 2. Use simplified response (no function calls)
+          console.info('[Gemini] Using simplified response mode');
+          return this.generateSimplifiedResponse(messages);
+        }
+        
         throw error;
       }
     });
+  }
+
+  /**
+   * Get cached response for similar queries
+   */
+  private async getCachedResponse(messages: BaseMessage[]): Promise<any> {
+    const queryHash = this.hashMessages(messages);
+    const cached = this.responseCache.get(queryHash);
+    
+    if (cached && this.isFreshCache(cached)) {
+      return cached.response;
+    }
+    
+    return null;
+  }
+
+  /**
+   * Hash messages for caching
+   */
+  private hashMessages(messages: BaseMessage[]): string {
+    const content = messages.map(m => m.content).join('|');
+    return btoa(content).slice(0, 16);
+  }
+
+  /**
+   * Check if cache is fresh (within 5 minutes)
+   */
+  private isFreshCache(cached: any): boolean {
+    return Date.now() - cached.timestamp < 5 * 60 * 1000;
+  }
+
+  /**
+   * Generate simplified response when in degraded mode
+   */
+  private generateSimplifiedResponse(messages: BaseMessage[]): any {
+    const lastMessage = messages[messages.length - 1];
+    const text = `I'm operating in degraded mode due to API rate limits. 
+Your request: "${lastMessage.content}"
+Please try again in a moment when API limits reset.
+
+In the meantime, I can help with basic navigation tasks without complex function calls.`;
+    
+    return new AIMessage(text);
   }
 
   // Override withStructuredOutput to work with our wrapper

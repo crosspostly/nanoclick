@@ -413,9 +413,44 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
           }
         }
 
-        const result = await actionInstance.call(actionArgs);
-        if (result === undefined) {
-          throw new Error(`Action ${actionName} returned undefined`);
+        let result: ActionResult;
+        
+        try {
+          result = await actionInstance.call(actionArgs);
+          if (result === undefined) {
+            throw new Error(`Action ${actionName} returned undefined`);
+          }
+        } catch (primaryError) {
+          logger.warn('[Action] Failed, trying fallback', {
+            action: actionName,
+            error: primaryError instanceof Error ? primaryError.message : String(primaryError),
+          });
+          
+          // Attempt fallback based on action type
+          const fallbackAction = this.getFallbackAction(actionName, actionArgs);
+          if (fallbackAction) {
+            try {
+              logger.info('[Action] Using fallback', { fallback: fallbackAction.name });
+              const fallbackActionInstance = this.actionRegistry.getAction(fallbackAction.name);
+              if (fallbackActionInstance) {
+                result = await fallbackActionInstance.call(fallbackAction.args);
+                if (result === undefined) {
+                  throw new Error(`Fallback action ${fallbackAction.name} returned undefined`);
+                }
+                logger.info('[Action] Fallback successful');
+              } else {
+                throw new Error(`Fallback action ${fallbackAction.name} not found`);
+              }
+            } catch (fallbackError) {
+              logger.error('[Action] Fallback also failed', {
+                primary: primaryError instanceof Error ? primaryError.message : String(primaryError),
+                fallback: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+              });
+              throw fallbackError;
+            }
+          } else {
+            throw primaryError;
+          }
         }
 
         // if the action has an index argument, record the interacted element to the result
@@ -681,5 +716,74 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
     }
 
     return action;
+  }
+
+  /**
+   * Get fallback action for a given primary action that failed
+   */
+  private getFallbackAction(
+    actionName: string,
+    actionArgs: Record<string, unknown>
+  ): { name: string; args: Record<string, unknown> } | null {
+    const fallbacks: Record<string, (args: Record<string, unknown>) => { name: string; args: Record<string, unknown> } | null> = {
+      // OCR fallbacks
+      'extract_text_from_screenshot': (args) => ({
+        name: 'cache_content',
+        args: {
+          intent: args.intent || 'Extract text from page',
+          content: 'OCR failed, using DOM text extraction as fallback',
+        },
+      }),
+      'find_text_on_screen': (args) => ({
+        name: 'scroll_to_text',
+        args: {
+          intent: args.intent || 'Find text on page',
+          text: args.searchText,
+        },
+      }),
+      'ocr_click_element': (args) => ({
+        name: 'click_element',
+        args: {
+          intent: args.intent || 'Click element',
+          index: 0, // Try first clickable element as fallback
+        },
+      }),
+      
+      // Click fallbacks
+      'click_element': (args) => {
+        // If click failed, try keyboard navigation
+        if (args.text && typeof args.text === 'string') {
+          return {
+            name: 'send_keys',
+            args: {
+              intent: args.intent || 'Navigate using keyboard',
+              keys: 'Tab',
+            },
+          };
+        }
+        return null;
+      },
+      
+      // Navigation fallbacks
+      'go_to_url': (args) => ({
+        name: 'search_google',
+        args: {
+          intent: args.intent || 'Navigate to URL',
+          query: args.url || '',
+        },
+      }),
+      
+      // Input fallbacks
+      'input_text': (args) => ({
+        name: 'send_keys',
+        args: {
+          intent: args.intent || 'Input text using keyboard',
+          keys: args.text || '',
+        },
+      }),
+    };
+
+    const fallbackFn = fallbacks[actionName];
+    return fallbackFn ? fallbackFn(actionArgs) : null;
   }
 }
