@@ -1,25 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// Note: @google/generative-ai is not in shared dependencies - this wrapper is prepared but not active
-// It should be moved to chrome-extension dependencies when integrated
-// import type { Content, Part } from '@google/generative-ai';
-
-// Mock types for development when dependency not available
-interface Content {
-  role: string;
-  parts: Part[];
-}
-
-interface Part {
-  text?: string;
-  functionCall?: any;
-  functionResponse?: any;
-}
-
-// Mock class for type checking when dependency not available
-declare class GoogleGenerativeAI {
-  constructor(apiKey: string);
-  getGenerativeModel(options: any): any;
-}
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import type { Content, Part } from '@google/generative-ai';
 
 interface RetryConfig {
   maxRetries: number;
