@@ -222,3 +222,23 @@ export const findTextOnScreenActionSchema: ActionSchema = {
     searchText: z.string().describe('text to find on screen'),
   }),
 };
+
+export const extractTextRegionsActionSchema: ActionSchema = {
+  name: 'extract_text_regions',
+  description: 'Extract all text regions from screenshot with coordinates. Returns all text found on screen with their positions and confidence scores.',
+  schema: z.object({
+    intent: z.string().default('').describe('purpose of this action'),
+    screenshot: z.string().optional().describe('Base64 screenshot (if not provided, will take a new screenshot)'),
+  }),
+};
+
+export const ocrClickElementActionSchema: ActionSchema = {
+  name: 'ocr_click_element',
+  description: 'Find text on screen via OCR and click it. Useful for clicking on text within images or inaccessible elements.',
+  schema: z.object({
+    intent: z.string().default('').describe('purpose of this action'),
+    text: z.string().describe('text to find and click'),
+    clickType: z.enum(['left', 'right', 'double']).default('left').describe('type of click to perform'),
+    screenshot: z.string().optional().describe('Base64 screenshot (if not provided, will take a new screenshot)'),
+  }),
+};

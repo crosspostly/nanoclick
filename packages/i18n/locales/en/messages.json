@@ -967,5 +967,71 @@
         "example": "Option not found"
       }
     }
+  },
+  "act_extractTextRegions_start": {
+    "message": "Extracting all text regions from screenshot using OCR",
+    "description": "Action start message for extracting text regions"
+  },
+  "act_extractTextRegions_ok": {
+    "message": "Extracted $COUNT$ text regions from screenshot",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "5"
+      }
+    },
+    "description": "Action success message for extracting text regions"
+  },
+  "act_ocrClick_start": {
+    "message": "Finding and clicking \"$TEXT$\" via OCR",
+    "placeholders": {
+      "text": {
+        "content": "$1",
+        "example": "Submit"
+      }
+    },
+    "description": "Action start message for OCR click"
+  },
+  "act_ocrClick_ok": {
+    "message": "Successfully clicked \"$TEXT$\" at coordinates ($X$, $Y$) using $CLICK_TYPE$ click",
+    "placeholders": {
+      "text": {
+        "content": "$1",
+        "example": "Submit"
+      },
+      "x": {
+        "content": "$2",
+        "example": "150"
+      },
+      "y": {
+        "content": "$3",
+        "example": "200"
+      },
+      "click_type": {
+        "content": "$4",
+        "example": "left"
+      }
+    },
+    "description": "Action success message for OCR click"
+  },
+  "act_ocrClick_textNotFound": {
+    "message": "Text \"$TEXT$\" not found on screen",
+    "placeholders": {
+      "text": {
+        "content": "$1",
+        "example": "Submit"
+      }
+    },
+    "description": "Error message when OCR cannot find the text to click"
+  },
+  "act_ocrClick_failed": {
+    "message": "Failed to click via OCR: $ERROR$",
+    "placeholders": {
+      "error": {
+        "content": "$1",
+        "example": "Puppeteer not available"
+      }
+    },
+    "description": "Error message when OCR click fails"
   }
 }

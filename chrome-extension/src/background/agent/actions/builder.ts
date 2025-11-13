@@ -24,6 +24,8 @@ import {
   scrollToBottomActionSchema,
   extractTextFromScreenshotActionSchema,
   findTextOnScreenActionSchema,
+  extractTextRegionsActionSchema,
+  ocrClickElementActionSchema,
 } from './schemas';
 import { z } from 'zod';
 import { createLogger } from '@src/background/log';
@@ -790,6 +792,101 @@ export class ActionBuilder {
       findTextOnScreenActionSchema,
     );
     actions.push(findTextOnScreen);
+
+    const extractTextRegions = new Action(
+      async (input: z.infer<typeof extractTextRegionsActionSchema.schema>) => {
+        const intent = input.intent || t('act_extractTextRegions_start');
+        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
+
+        try {
+          const page = await this.context.browserContext.getCurrentPage();
+          const screenshot = input.screenshot || await page.takeScreenshot();
+
+          const ocr = getOCRWrapper();
+          if (!ocr.isReady()) {
+            const msg = 'OCR is not available. Tesseract.js may not be installed.';
+            logger.warning(msg);
+            this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
+            return new ActionResult({ error: msg, includeInMemory: true });
+          }
+
+          const regions = await ocr.extractTextRegions(screenshot);
+          if (regions.length === 0) {
+            const msg = 'No text regions found in screenshot';
+            this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
+            return new ActionResult({ extractedContent: msg, includeInMemory: true });
+          }
+
+          const formattedRegions = regions.map((region, index) => 
+            `${index + 1}. Text: "${region.text}" at (x=${region.bbox[0]}, y=${region.bbox[1]}, w=${region.bbox[2]}, h=${region.bbox[3]}) confidence=${region.confidence?.toFixed(1) || 'N/A'}%`
+          ).join('\n');
+
+          const msg = `📷 Found ${regions.length} text regions:\n${formattedRegions}`;
+          this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, t('act_extractTextRegions_ok', [regions.length.toString()]));
+          return new ActionResult({ extractedContent: msg, includeInMemory: true });
+        } catch (error) {
+          const errorMsg = `OCR text regions extraction failed: ${error instanceof Error ? error.message : String(error)}`;
+          logger.error(errorMsg);
+          this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, errorMsg);
+          return new ActionResult({ error: errorMsg, includeInMemory: true });
+        }
+      },
+      extractTextRegionsActionSchema,
+    );
+    actions.push(extractTextRegions);
+
+    const ocrClickElement = new Action(
+      async (input: z.infer<typeof ocrClickElementActionSchema.schema>) => {
+        const intent = input.intent || t('act_ocrClick_start', [input.text]);
+        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
+
+        try {
+          const page = await this.context.browserContext.getCurrentPage();
+          const screenshot = input.screenshot || await page.takeScreenshot();
+
+          const ocr = getOCRWrapper();
+          if (!ocr.isReady()) {
+            const msg = 'OCR is not available. Tesseract.js may not be installed.';
+            logger.warning(msg);
+            this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
+            return new ActionResult({ error: msg, includeInMemory: true });
+          }
+
+          const region = await ocr.findTextOnScreen(screenshot, input.text);
+          if (!region) {
+            const msg = t('act_ocrClick_textNotFound', [input.text]);
+            this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
+            return new ActionResult({ extractedContent: msg, includeInMemory: true });
+          }
+
+          // Calculate click position (center of found text)
+          const clickX = region.bbox[0] + region.bbox[2] / 2;
+          const clickY = region.bbox[1] + region.bbox[3] / 2;
+
+          // Perform click using Puppeteer's page.mouse API
+          const puppeteerPage = await page.getPuppeteerPage();
+          if (!puppeteerPage) {
+            throw new Error('Puppeteer page not available');
+          }
+
+          await puppeteerPage.mouse.click(clickX, clickY, {
+            button: input.clickType === 'right' ? 'right' : 'left',
+            clickCount: input.clickType === 'double' ? 2 : 1,
+          });
+
+          const msg = t('act_ocrClick_ok', [input.text, clickX.toFixed(1), clickY.toFixed(1), input.clickType]);
+          this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, `OCR click successful`);
+          return new ActionResult({ extractedContent: msg, includeInMemory: true });
+        } catch (error) {
+          const errorMsg = t('act_ocrClick_failed', [error instanceof Error ? error.message : String(error)]);
+          logger.error(errorMsg);
+          this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, errorMsg);
+          return new ActionResult({ error: errorMsg, includeInMemory: true });
+        }
+      },
+      ocrClickElementActionSchema,
+    );
+    actions.push(ocrClickElement);
 
     return actions;
   }
