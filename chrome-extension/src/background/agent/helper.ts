@@ -251,12 +251,21 @@ function createAzureChatModel(providerConfig: ProviderConfig, modelConfig: Model
 }
 
 // Wrapper class for GeminiWrapper to make it compatible with LangChain BaseChatModel
+// 
+// This class extends ChatGoogleGenerativeAI but overrides the key methods to use
+// GeminiWrapper instead of the parent class implementation. This ensures that:
+// - Retry logic from GeminiWrapper is applied
+// - Conversation history validation happens
+// - Function call fixes (snake_case → camelCase) are applied
+// - Rate limiting is honored between requests
+// - All wrapper features are properly utilized
 class GeminiChatModel extends ChatGoogleGenerativeAI {
   private geminiWrapper: GeminiWrapper;
+  private rateLimiter: GeminiRateLimiter;
 
   constructor(args: any) {
-    super(args);
-    this.geminiWrapper = new GeminiWrapper({
+    // Initialize wrapper and rate limiter first
+    const geminiWrapper = new GeminiWrapper({
       apiKey: args.apiKey,
       model: args.model,
       retryConfig: {
@@ -266,6 +275,197 @@ class GeminiChatModel extends ChatGoogleGenerativeAI {
         backoffMultiplier: 2,
       },
     });
+
+    // Now call super with minimal config since we'll override the main methods
+    super(args);
+
+    this.geminiWrapper = geminiWrapper;
+    this.rateLimiter = new GeminiRateLimiter();
+  }
+
+  // Override the main invoke method to use GeminiWrapper
+  async invoke(messages: BaseMessage[], options?: any): Promise<any> {
+    console.log('[GeminiChatModel] Using GeminiWrapper instead of ChatGoogleGenerativeAI');
+    
+    // Use rate limiter to respect 30 requests/minute limit
+    return this.rateLimiter.execute(async () => {
+      try {
+        console.log('[GeminiChatModel] Converting messages to Gemini format');
+        // Convert LangChain BaseMessage[] to Gemini Content[] format
+        const conversationHistory = this._convertMessagesToGeminiFormat(messages);
+        
+        // Extract tools from options if present
+        const tools = options?.tools;
+        
+        console.log('[GeminiChatModel] Calling GeminiWrapper.generateContentWithRetry');
+        // Use GeminiWrapper with retry logic
+        const result = await this.geminiWrapper.generateContentWithRetry(
+          conversationHistory,
+          {
+            generationConfig: options?.generationConfig,
+            safetySettings: options?.safetySettings,
+            tools,
+          },
+        );
+
+        console.log('[GeminiChatModel] GeminiWrapper call successful, converting response');
+        // Convert Gemini response back to LangChain format
+        return this._convertGeminiResponseToLangChainMessage(result);
+      } catch (error) {
+        console.error('[GeminiChatModel] Error in invoke:', error);
+        throw error;
+      }
+    });
+  }
+
+  // Override withStructuredOutput to work with our wrapper
+  withStructuredOutput(schema: any, config?: any): any {
+    console.log('[GeminiChatModel] Creating structured output wrapper using GeminiWrapper');
+    
+    // Return a wrapper that will use our invoke method with the schema
+    return {
+      invoke: async (messages: BaseMessage[], options?: any) => {
+        try {
+          console.log('[GeminiChatModel] Structured output invoke - converting schema to tools');
+          // Add schema to generation config for function calling
+          const generationConfig = {
+            ...options?.generationConfig,
+            // For Gemini, tools are used for structured output
+          };
+
+          const result = await this.invoke(messages, {
+            ...options,
+            generationConfig,
+            // Convert schema to tools for Gemini
+            tools: this._convertSchemaToTools(schema, config?.name),
+          });
+
+          console.log('[GeminiChatModel] Structured output invoke - extracting structured data');
+          // Try to extract structured data from the response
+          const parsed = this._extractStructuredOutput(result, schema);
+          
+          return {
+            parsed,
+            raw: result,
+          };
+        } catch (error) {
+          console.error('[GeminiChatModel] Error in structured output:', error);
+          throw error;
+        }
+      },
+    };
+  }
+
+  // Helper: Convert LangChain messages to Gemini format
+  private _convertMessagesToGeminiFormat(messages: BaseMessage[]): any[] {
+    return messages.map((message) => {
+      const content = message.content as string;
+      const messageType = message._getType();
+      
+      // Handle different message types
+      if (messageType === 'human' || messageType === 'user') {
+        return {
+          role: 'user',
+          parts: [{ text: content }],
+        };
+      } else if (messageType === 'ai' || messageType === 'assistant') {
+        return {
+          role: 'model',
+          parts: [{ text: content }],
+        };
+      } else if (messageType === 'system') {
+        // System messages in Gemini are typically added as user messages with a prefix
+        return {
+          role: 'user',
+          parts: [{ text: `System: ${content}` }],
+        };
+      } else {
+        // Default to user role for unknown types
+        return {
+          role: 'user',
+          parts: [{ text: content }],
+        };
+      }
+    });
+  }
+
+  // Helper: Convert Gemini response back to LangChain format
+  private _convertGeminiResponseToLangChainMessage(result: any): any {
+    const response = result.response;
+    
+    if (!response) {
+      throw new Error('No response from Gemini API');
+    }
+
+    const text = response.text();
+    
+    // Check for function calls
+    const functionCalls = response.functionCalls();
+    
+    if (functionCalls && functionCalls.length > 0) {
+      // Return a message with function calls
+      return {
+        content: text || '',
+        additional_kwargs: {
+          function_calls: functionCalls.map((fc: any) => ({
+            name: fc.name,
+            arguments: JSON.stringify(fc.args),
+          })),
+        },
+      };
+    }
+
+    // Return regular text message
+    return new AIMessage(text);
+  }
+
+  // Helper: Convert JSON schema to Gemini tools format
+  private _convertSchemaToTools(schema: any, name?: string): any[] {
+    if (!schema) return [];
+
+    return [
+      {
+        functionDeclaration: {
+          name: name || 'extract_structured_data',
+          description: 'Extract structured data from the conversation',
+          parameters: schema,
+        },
+      },
+    ];
+  }
+
+  // Helper: Extract structured output from response
+  private _extractStructuredOutput(response: any, schema: any): any {
+    try {
+      // If response has function calls, extract from there
+      if (response.additional_kwargs?.function_calls) {
+        const functionCall = response.additional_kwargs.function_calls[0];
+        if (functionCall.arguments) {
+          return JSON.parse(functionCall.arguments);
+        }
+      }
+
+      // Otherwise, try to extract JSON from text content
+      if (typeof response.content === 'string') {
+        // Look for JSON in the content
+        const jsonMatch = response.content.match(/```json\s*([\s\S]*?)\s*```/);
+        if (jsonMatch) {
+          return JSON.parse(jsonMatch[1]);
+        }
+
+        // Try to parse the entire content as JSON
+        try {
+          return JSON.parse(response.content);
+        } catch {
+          // Not valid JSON, return null
+        }
+      }
+
+      return null;
+    } catch (error) {
+      console.error('[GeminiChatModel] Error extracting structured output:', error);
+      return null;
+    }
   }
 }
 
